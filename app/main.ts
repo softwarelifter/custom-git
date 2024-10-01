@@ -1,4 +1,4 @@
-import * as fs from 'fs/promises';  // Change this line
+import * as fs from 'fs/promises';
 import zlib from 'zlib';
 import { join } from 'path';
 import { promisify } from 'util';
@@ -76,8 +76,7 @@ const writeObject = async (contentFile: string) => {
 
     console.log(sha1)
 }
-const splitBufferChunks = (buffer) => {
-    // console.log(buffer.toString())
+const splitBufferChunks = (buffer: Buffer) => {
     // Convert buffer to string
     const content = buffer.toString('binary');
 
@@ -108,9 +107,9 @@ const readTree = async (repoPath: string, treeSHA: string) => {
     const decompressedData = await inflate(compressedData)
     const headerEndIndex = decompressedData.indexOf(0) + 1
     const chunks = splitBufferChunks(decompressedData.slice(headerEndIndex))
-    // console.log(chunks)
+
     chunks.map((chunk) => {
-        // console.log(chunk.sha.length)
+
         console.log(chunk.name)
     })
 
