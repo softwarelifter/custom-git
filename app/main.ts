@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import zlib from 'zlib';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { promisify } from 'util';
 import crypto from 'crypto'
 
@@ -11,7 +11,8 @@ enum Commands {
     Init = "init",
     Cat_File = "cat-file",
     Hash_Object = "hash-object",
-    Ls_Tree = "ls-tree"
+    Ls_Tree = "ls-tree",
+    Write_Tree = "write-tree"
 }
 
 const inflate = promisify(zlib.inflate);
@@ -65,7 +66,7 @@ const init = async (): Promise<void> => {
     }
 };
 
-const writeObject = async (contentFile: string) => {
+const writeBlobObject = async (contentFile: string) => {
     const content = await fs.readFile(contentFile)
     const size = content.length
     const objectContent = `blob ${size}\0${content}`
@@ -73,9 +74,9 @@ const writeObject = async (contentFile: string) => {
     const sha1 = calculateSHA1(objectContent)
     await fs.mkdir(`.git/objects/${sha1.slice(0, 2)}`, { recursive: true });
     await fs.writeFile(`.git/objects/${sha1.slice(0, 2)}/${sha1.slice(2)}`, compressedData)
-
-    console.log(sha1)
+    return sha1
 }
+
 const splitBufferChunks = (buffer: Buffer) => {
     // Convert buffer to string
     const content = buffer.toString('binary');
@@ -115,7 +116,76 @@ const readTree = async (repoPath: string, treeSHA: string) => {
 
 }
 
+enum modes {
+    REGULAR_FILE = "100644",
+    EXECUTABLE_FILE = "100755",
+    SYMBOLIC_FILE = "120000",
+    DIRECTORY = "40000"
+}
+interface TreeEntry {
+    mode: modes,
+    name: string,
+    sha: string
+}
+
+
+const writeTreeObject = async (objectShaList: TreeEntry[]) => {
+    // Sort the entries
+    objectShaList.sort((a, b) => a.name.localeCompare(b.name));
+
+    let content = Buffer.alloc(0);
+    for (const item of objectShaList) {
+        const entryContent = Buffer.concat([
+            Buffer.from(`${item.mode} ${item.name}\0`),
+            Buffer.from(item.sha, 'hex')  // Convert hex SHA to binary
+        ]);
+        content = Buffer.concat([content, entryContent]);
+    }
+
+    const header = Buffer.from(`tree ${content.length}\0`);
+    const objectContent = Buffer.concat([header, content]);
+
+    const compressedData = await deflate(objectContent);
+    const sha1 = calculateSHA1(objectContent);
+
+    const objectPath = join('.git', 'objects', sha1.slice(0, 2), sha1.slice(2));
+    await fs.mkdir(dirname(objectPath), { recursive: true });
+    await fs.writeFile(objectPath, compressedData);
+
+    return sha1;
+}
+
+const writeTree = async (repo: string): Promise<string> => {
+    const entries = await fs.readdir(repo, { withFileTypes: true });
+    const shaObjects: TreeEntry[] = [];
+
+    for (const entry of entries) {
+        if (entry.name === '.git') continue;  // Skip .git directory
+
+        const fullPath = join(repo, entry.name);
+        let sha: string;
+        let mode: modes;
+
+        try {
+            if (entry.isDirectory()) {
+                sha = await writeTree(fullPath);
+                mode = modes.DIRECTORY;
+            } else {
+                sha = await writeBlobObject(fullPath);
+                mode = modes.REGULAR_FILE;
+            }
+
+            shaObjects.push({ mode, name: entry.name, sha });
+        } catch (error) {
+            console.error(`Error processing ${fullPath}:`, error);
+        }
+    }
+
+    return await writeTreeObject(shaObjects);
+}
+
 const main = async (): Promise<void> => {
+    let sha: string = ""
     switch (command) {
         case Commands.Init:
             await init();
@@ -125,12 +195,18 @@ const main = async (): Promise<void> => {
             break;
         case Commands.Hash_Object:
             if (args[1] == "-w")
-                await writeObject(args[2])
+                sha = await writeBlobObject(args[2])
+            console.log(sha)
             break;
         case Commands.Ls_Tree:
             if (args[1] === "--name-only") {
                 readTree(".git/objects", args[2])
             }
+            break
+
+        case Commands.Write_Tree:
+            sha = await writeTree("./")
+            console.log(sha)
             break
 
         default:
