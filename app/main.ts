@@ -12,7 +12,8 @@ enum Commands {
     Cat_File = "cat-file",
     Hash_Object = "hash-object",
     Ls_Tree = "ls-tree",
-    Write_Tree = "write-tree"
+    Write_Tree = "write-tree",
+    Commit_Tree = "commit-tree"
 }
 
 const inflate = promisify(zlib.inflate);
@@ -184,6 +185,35 @@ const writeTree = async (repo: string): Promise<string> => {
     return await writeTreeObject(shaObjects);
 }
 
+interface CommitObject {
+    treeSha: string,
+    parentCommitSha: string,
+    authorName: string,
+    authorEmail: string,
+    committerEmail: string,
+    committerName: string,
+    message: string,
+    timestamp: string
+}
+
+const writeCommit = async (commitObj: CommitObject) => {
+    let content = Buffer.alloc(0)
+    content = Buffer.concat([Buffer.from(`tree ${commitObj.treeSha}\nparent ${commitObj.parentCommitSha}`)])
+    content = Buffer.concat([content, Buffer.from(" "), Buffer.from(`author ${commitObj.authorName} ${commitObj.authorEmail} ${commitObj.timestamp}`)])
+    content = Buffer.concat([content, Buffer.from(" "), Buffer.from(`committer ${commitObj.committerName} ${commitObj.committerEmail} ${commitObj.timestamp}`)])
+    content = Buffer.concat([content, Buffer.from("\n\n"), Buffer.from(commitObj.message), Buffer.from("\n")])
+
+    const header = Buffer.from(`commit ${content.length}\0`);
+    const objectContent = Buffer.concat([header, content]);
+    const compressedData = await deflate(objectContent);
+    const sha1 = calculateSHA1(objectContent);
+
+    const objectPath = join('.git', 'objects', sha1.slice(0, 2), sha1.slice(2));
+    await fs.mkdir(dirname(objectPath), { recursive: true });
+    await fs.writeFile(objectPath, compressedData);
+    return sha1
+}
+
 const main = async (): Promise<void> => {
     let sha: string = ""
     switch (command) {
@@ -206,6 +236,24 @@ const main = async (): Promise<void> => {
 
         case Commands.Write_Tree:
             sha = await writeTree("./")
+            console.log(sha)
+            break
+
+        case Commands.Commit_Tree:
+            const treeSha = args[1]
+            const parentCommitSha = args[3]
+            const commitMessage = args[5]
+
+            sha = await writeCommit({
+                treeSha,
+                parentCommitSha,
+                authorEmail: "surajydv3@gmail.com",
+                authorName: "suraj",
+                committerEmail: "surajydv3@gmail.com",
+                committerName: "suraj",
+                timestamp: Date.now().toString(),
+                message: commitMessage
+            })
             console.log(sha)
             break
 
