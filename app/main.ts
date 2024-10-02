@@ -18,7 +18,7 @@ enum Commands {
 const inflate = promisify(zlib.inflate);
 const deflate = promisify(zlib.deflate)
 
-const calculateSHA1 = (input: string) => {
+const calculateSHA1 = (input: Buffer | string) => {
     const hash = crypto.createHash('sha1');
     hash.update(input);
     return hash.digest('hex');
